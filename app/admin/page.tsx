@@ -1,13 +1,6 @@
-const DashboardPage = () => {
-  return (
-    <>
-      <h1 className="mb-4 text-3xl font-bold">
-        Dashboard
-      </h1>
+import { redirect } from "next/navigation";
 
-      <p>Overview of reservations and rooms.</p>
-    </>
-  );
+export default function AdminPage() {
+  // Whenever someone visits /admin, redirect them immediately to /admin/dashboard
+  redirect("/admin/dashboard");
 }
-
-export default DashboardPage;

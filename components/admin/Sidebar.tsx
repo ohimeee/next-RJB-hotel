@@ -6,7 +6,7 @@ const Sidebar = () => {
       <h2 className="mb-8 text-2xl font-bold">Admin</h2>
 
       <div className="flex flex-col gap-4">
-        <NavLink href="/admin">Dashboard</NavLink>
+        <NavLink href="/admin/dashboard">Dashboard</NavLink>
 
         <NavLink href="/admin/rooms">Rooms</NavLink>
 
