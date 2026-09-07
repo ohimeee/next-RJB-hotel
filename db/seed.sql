@@ -1,4 +1,4 @@
--- The Makati property, straight from the design mockups. Rates are in pesos,
+-- The Iloilo City property, straight from the design mockups. Rates are in pesos,
 -- before VAT — the guest side adds it at checkout.
 --
 -- Keyed on "number" so re-running refreshes rooms instead of duplicating them

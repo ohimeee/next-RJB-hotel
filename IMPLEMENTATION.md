@@ -135,7 +135,7 @@ ALTER TYPE "ReservationStatus" ADD VALUE 'PENDING' BEFORE 'CONFIRMED';
 
 - **`confirmationCode`** — a short readable code. The mockup uses `IKX-4820`, so: `IKX-` + 4 digits. Guests have no accounts, so it is their only retrieval path. A `cuid` in a URL is not something anyone reads off a phone.
 - **`guestCount`** — `InfoBar` has a Guests selector and `RoomCard` shows "Sleeps 2", so search must filter on `capacity`. Nothing stores the requested count today.
-- **`taxAmount`** — `BookingCard` renders a "Taxes & fees (12%)" line with no field behind it. 12% is Philippine VAT and the nav places the hotel in Makati, Manila, so the rate is real, not filler. Store the *computed amount*, not the rate: if VAT changes, historical folios must not silently change. Rate lives in one constant in `lib/pricing.ts`.
+- **`taxAmount`** — `BookingCard` renders a "Taxes & fees (12%)" line with no field behind it. 12% is Philippine VAT and the nav places the hotel in Iloilo City, so the rate is real, not filler. Store the *computed amount*, not the rate: if VAT changes, historical folios must not silently change. Rate lives in one constant in `lib/pricing.ts`.
 
 ---
 
@@ -620,7 +620,7 @@ Auth before data work: retrofitting a gate onto finished admin pages means touch
 ## 12. Open questions
 
 1. ~~**Is Postgres actually running locally?**~~ — **settled: yes.** `db/schema.sql` and `db/seed.sql` are applied against `rjb_hotel` and the availability query is verified against real rows.
-2. ~~**Currency**~~ — **settled: ₱.** The nav places the hotel in Makati, Manila and the catalog prices in pesos (₱3,600–₱10,500). `BookingCard`'s `$245.00 … Incl. taxes & fees | USD` is a leftover from the template and needs converting.
+2. ~~**Currency**~~ — **settled: ₱.** The nav places the hotel in Iloilo City and the catalog prices in pesos (₱3,600–₱10,500). `BookingCard`'s `$245.00 … Incl. taxes & fees | USD` is a leftover from the template and needs converting.
 3. ~~**Tax rate**~~ — **settled: 12% is real** (Philippine VAT), consistent with the Manila location.
 4. **Room photos** — `imageUrl` string plus manual entry, or file upload? Upload means storage, which is a much larger change. Assumption: **URL string**.
 5. **Cancellation** — guest-cancel via code, or staff-only? Assumption: **staff-only**.

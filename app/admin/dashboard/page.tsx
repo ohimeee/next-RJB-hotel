@@ -71,7 +71,7 @@ const DashboardPage = async () => {
           Dashboard
         </h1>
         <div className="text-[13px] text-[#201e1d]/55">
-          {formatToday()} · Makati
+          {formatToday()} · Iloilo City
         </div>
       </div>
       <hr className="mt-6 h-0.5 border-0 bg-[#201e1d]/40" />
