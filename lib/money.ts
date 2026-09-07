@@ -56,3 +56,18 @@ export const formatPeso = (value: string): string => {
 
   return `${negative ? "-" : ""}₱${body}`;
 };
+
+/**
+ * "8900" -> "₱8,900.00". Always two decimals.
+ *
+ * `formatPeso` drops a trailing ".00" because a catalog rate reads better
+ * without it. A folio does not: a column of amounts has to line up, and a bill
+ * that prints "₱450" next to "₱1,200.50" looks like a typo rather than a total.
+ */
+export const formatPesoExact = (value: string): string => {
+  const raw = toMoney(value);
+  const negative = raw.startsWith("-");
+  const [whole = "0", cents = "00"] = raw.replace("-", "").split(".");
+
+  return `${negative ? "-" : ""}₱${groupDigits(whole)}.${cents}`;
+};

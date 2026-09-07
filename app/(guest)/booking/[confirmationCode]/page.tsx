@@ -4,7 +4,7 @@ import NavLink from "@/components/NavLink";
 import StayDetails from "@/components/guest/StayDetails";
 import { formatPeso } from "@/lib/money";
 import { getReservationByCode } from "@/lib/reservations";
-import { typeLabel } from "@/lib/rooms";
+import { typeLabel } from "@/lib/types";
 import { nights } from "@/lib/dates";
 
 const first = (value: string | string[] | undefined): string | undefined =>

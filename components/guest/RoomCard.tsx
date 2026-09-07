@@ -2,7 +2,8 @@ import Link from "next/link";
 import { UserRound } from "lucide-react";
 import { MoveRight } from "lucide-react";
 
-import { typeLabel, type RoomCardData } from "@/lib/rooms";
+import type { RoomCardData } from "@/lib/rooms";
+import { typeLabel } from "@/lib/types";
 
 const RoomCard = ({ room, href }: { room: RoomCardData; href: string }) => {
   return (

@@ -38,3 +38,42 @@ export const today = (): string => toDateString(new Date());
 
 export const addDays = (date: string, days: number): string =>
   toDateString(new Date(toUtcDate(date).getTime() + days * MS_PER_DAY));
+
+/**
+ * The property's timezone.
+ *
+ * Timestamps are rendered here rather than in the server's zone, so a folio
+ * reads the same on a laptop in Manila, a host in Virginia, and a phone abroad.
+ * The front desk's clock is the one a guest is standing in front of.
+ */
+export const HOTEL_TIME_ZONE = "Asia/Manila";
+
+/** "Fri, 28 Aug 2026" — the long form the folio and dashboard headers use. */
+export const formatLongDate = (date: string): string =>
+  toUtcDate(date).toLocaleDateString("en-PH", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+/** "28 Aug, 3:12 PM" — for a stamp on something that actually happened. */
+export const formatStamp = (at: Date): string =>
+  at.toLocaleString("en-PH", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: HOTEL_TIME_ZONE,
+  });
+
+/** "Friday, 7 September 2026" — the dashboard's own date line. */
+export const formatToday = (): string =>
+  new Date().toLocaleDateString("en-PH", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: HOTEL_TIME_ZONE,
+  });

@@ -9,7 +9,8 @@ import {
   type BookingError,
 } from "@/lib/reservations";
 import { attempt } from "@/lib/result";
-import { getRoom, typeLabel } from "@/lib/rooms";
+import { getRoom } from "@/lib/rooms";
+import { typeLabel } from "@/lib/types";
 import { bookingSchema } from "@/lib/schemas";
 import { firstMessage, validateFormData } from "@/lib/validate";
 

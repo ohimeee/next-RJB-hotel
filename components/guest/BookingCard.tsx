@@ -1,6 +1,7 @@
 import ConfirmButton from "@/components/guest/ConfirmButton";
 import type { Quote } from "@/lib/pricing";
-import { typeLabel, type RoomCardData } from "@/lib/rooms";
+import type { RoomCardData } from "@/lib/rooms";
+import { typeLabel } from "@/lib/types";
 
 const BookingCard = ({ room, quote }: { room: RoomCardData; quote: Quote }) => {
   return (

@@ -26,10 +26,6 @@ export type RoomCardData = {
 /** A row of the `Room` table, as node-postgres hands it back. */
 type RoomRow = Omit<RoomCardData, "nightlyRateLabel">;
 
-/** SUITE -> Suite */
-export const typeLabel = (type: RoomType): string =>
-  type.charAt(0) + type.slice(1).toLowerCase();
-
 const ROOM_COLUMNS = `
   "id",
   "number",
@@ -118,4 +114,122 @@ export const getRoom = async (id: string): Promise<RoomCardData | null> => {
   );
 
   return room ? toRoomCardData(room) : null;
+};
+
+/**
+ * Every room, in the order the admin table prints them.
+ *
+ * Unlike findAvailableRooms this applies no filter at all: the inventory screen
+ * has to show a room that is fully booked, otherwise there is no way to edit it.
+ */
+export const listRooms = async (): Promise<RoomCardData[]> => {
+  const rows = await query<RoomRow>(
+    `SELECT ${ROOM_COLUMNS} FROM "Room" ORDER BY "number" ASC`,
+  );
+
+  return rows.map(toRoomCardData);
+};
+
+/** What the add/edit form submits, once validated. */
+export type RoomInput = {
+  number: string;
+  name: string;
+  type: RoomType;
+  capacity: number;
+  nightlyRate: string;
+  status: RoomStatus;
+  amenities: string[];
+  description: string | null;
+  imageUrl: string | null;
+};
+
+/** The one way saving a room can fail that is not a bug. */
+export type RoomError = "NUMBER_TAKEN" | "ROOM_NOT_FOUND";
+
+export type RoomResult =
+  { ok: true; room: RoomCardData } | { ok: false; error: RoomError };
+
+const UNIQUE_VIOLATION = "23505";
+
+const isUniqueViolation = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: unknown }).code === UNIQUE_VIOLATION;
+
+export const createRoom = async (input: RoomInput): Promise<RoomResult> => {
+  try {
+    const room = await queryOne<RoomRow>(
+      `
+      INSERT INTO "Room" (
+        "number", "name", "type", "capacity",
+        "nightlyRate", "status", "amenities", "description", "imageUrl"
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING ${ROOM_COLUMNS}
+      `,
+      [
+        input.number,
+        input.name,
+        input.type,
+        input.capacity,
+        input.nightlyRate,
+        input.status,
+        input.amenities,
+        input.description,
+        input.imageUrl,
+      ],
+    );
+
+    return { ok: true, room: toRoomCardData(room!) };
+  } catch (error) {
+    // "Room_number_key". The form checks for a clash as you type, but that read
+    // is stale the moment it returns — the unique index is the real guard.
+    if (isUniqueViolation(error)) return { ok: false, error: "NUMBER_TAKEN" };
+
+    throw error;
+  }
+};
+
+export const updateRoom = async (
+  id: string,
+  input: RoomInput,
+): Promise<RoomResult> => {
+  try {
+    const room = await queryOne<RoomRow>(
+      `
+      UPDATE "Room"
+         SET "number"      = $2,
+             "name"        = $3,
+             "type"        = $4,
+             "capacity"    = $5,
+             "nightlyRate" = $6,
+             "status"      = $7,
+             "amenities"   = $8,
+             "description" = $9,
+             "imageUrl"    = $10
+       WHERE "id" = $1
+      RETURNING ${ROOM_COLUMNS}
+      `,
+      [
+        id,
+        input.number,
+        input.name,
+        input.type,
+        input.capacity,
+        input.nightlyRate,
+        input.status,
+        input.amenities,
+        input.description,
+        input.imageUrl,
+      ],
+    );
+
+    return room
+      ? { ok: true, room: toRoomCardData(room) }
+      : { ok: false, error: "ROOM_NOT_FOUND" };
+  } catch (error) {
+    if (isUniqueViolation(error)) return { ok: false, error: "NUMBER_TAKEN" };
+
+    throw error;
+  }
 };

@@ -11,7 +11,8 @@
     "db:seed": "node scripts/db.mjs db/seed.sql",
     "xendit:check": "node scripts/xendit-check.mjs",
     "lint": "eslint",
-    "test:booking": "node --import ./scripts/ts-alias.mjs scripts/test-booking.mjs"
+    "test:booking": "node --import ./scripts/ts-alias.mjs scripts/test-booking.mjs",
+    "test:frontdesk": "node --import ./scripts/ts-alias.mjs scripts/test-frontdesk.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

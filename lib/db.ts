@@ -7,6 +7,18 @@ import { Pool, types } from "pg";
 const DATE_OID = 1082;
 types.setTypeParser(DATE_OID, (value) => value);
 
+// TIMESTAMP columns have the same problem one level down. They are written by
+// `now()`, so they are instants in the database's zone (UTC on Supabase), but
+// they carry no offset — and node-postgres therefore reads them in the *Node
+// server's* zone. A check-in stamped 08:12 UTC then renders as 8:12 AM for a
+// developer in Manila when the guest actually arrived at 4:12 PM.
+//
+// Appending the offset that is really there is the whole fix: from here up,
+// every timestamp is a correct instant, and lib/dates.ts renders it in the
+// property's zone rather than the server's.
+const TIMESTAMP_OID = 1114;
+types.setTypeParser(TIMESTAMP_OID, (value) => new Date(`${value}Z`));
+
 // NUMERIC already arrives as a string, and that is deliberate: parsing pesos
 // into a float would reintroduce the rounding error lib/money.ts exists to
 // avoid. Do not add a parser for it.
@@ -71,4 +83,42 @@ export const queryOne = async <T>(
 ): Promise<T | null> => {
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
+};
+
+/**
+ * Run `fn` against a single client inside one transaction.
+ *
+ * For the writes that touch two rows at once — check-in and check-out each move
+ * a reservation *and* a room's housekeeping status, and a crash between them
+ * would leave a room occupied by a guest who has left. `query()` above takes a
+ * fresh client from the pool per call, so it cannot express that; this hands
+ * the same client to every statement in `fn`.
+ *
+ * The client is released in `finally` whatever happens. Leaking one would
+ * shrink the pool by a connection each time an action failed.
+ */
+export const withTransaction = async <T>(
+  fn: (
+    run: <R>(text: string, params?: unknown[]) => Promise<R[]>,
+  ) => Promise<T>,
+): Promise<T> => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await fn(async <R>(text: string, params: unknown[] = []) => {
+      const rows = await client.query(text, params);
+      return rows.rows as R[];
+    });
+
+    await client.query("COMMIT");
+
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };

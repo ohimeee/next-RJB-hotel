@@ -1,5 +1,5 @@
-import { query, queryOne } from "@/lib/db";
-import { formatPeso } from "@/lib/money";
+import { query, queryOne, withTransaction } from "@/lib/db";
+import { formatPeso, toCentavos, toMoney } from "@/lib/money";
 import { quoteStay, type Quote } from "@/lib/pricing";
 import { nights } from "@/lib/dates";
 import type { ReservationStatus, RoomType } from "@/lib/types";
@@ -309,3 +309,302 @@ export const getReservation = async (
     `SELECT ${RESERVATION_COLUMNS} FROM "Reservation" WHERE "id" = $1`,
     [id],
   );
+
+/** A reservation as the admin list and dashboard print it. */
+export type ReservationListItem = {
+  id: string;
+  confirmationCode: string;
+  guestName: string;
+  guestCount: number;
+  checkIn: string;
+  checkOut: string;
+  nights: number;
+  status: ReservationStatus;
+  totalAmount: string;
+  totalLabel: string;
+  holdExpiresAt: Date | null;
+  checkedInAt: Date | null;
+  checkedOutAt: Date | null;
+  roomNumber: string;
+  roomName: string;
+  roomType: RoomType;
+  /** "201 · Courtyard Deluxe", the one-line room label the tables use. */
+  roomLabel: string;
+};
+
+type ListRow = Omit<ReservationListItem, "nights" | "totalLabel" | "roomLabel">;
+
+const toListItem = (row: ListRow): ReservationListItem => ({
+  ...row,
+  nights: nights(row.checkIn, row.checkOut),
+  totalLabel: formatPeso(row.totalAmount),
+  roomLabel: `${row.roomNumber} · ${row.roomName}`,
+});
+
+const LIST_COLUMNS = `
+  res."id",
+  res."confirmationCode",
+  res."guestName",
+  res."guestCount",
+  res."checkIn",
+  res."checkOut",
+  res."status",
+  res."totalAmount",
+  res."holdExpiresAt",
+  res."checkedInAt",
+  res."checkedOutAt",
+  r."number" AS "roomNumber",
+  r."name"   AS "roomName",
+  r."type"   AS "roomType"
+`;
+
+/** The balance still owed on a stay, as a SQL expression over `res`. */
+const BALANCE_EXPRESSION = `
+  res."totalAmount"
+  + COALESCE((SELECT SUM(c."amount") FROM "Charge"  c WHERE c."reservationId" = res."id"), 0)
+  - COALESCE((SELECT SUM(p."amount") FROM "Payment" p WHERE p."reservationId" = res."id"), 0)
+`;
+
+/**
+ * Every reservation, newest first.
+ *
+ * Expired holds are released first for the same reason the availability query
+ * does it: a PENDING row whose timer ran out ten minutes ago is not a hold, and
+ * showing it as one sends the front desk chasing a guest who never paid.
+ *
+ * Status filtering and the guest/code search stay in the page rather than here.
+ * At this property's size the whole table is a few hundred rows, and filtering
+ * client-side keeps the filter buttons instant instead of round-tripping.
+ */
+export const listReservations = async (): Promise<ReservationListItem[]> => {
+  await releaseExpiredHolds();
+
+  const rows = await query<ListRow>(
+    `
+    SELECT ${LIST_COLUMNS}
+    FROM "Reservation" res
+    JOIN "Room" r ON r."id" = res."roomId"
+    ORDER BY res."createdAt" DESC
+    `,
+  );
+
+  return rows.map(toListItem);
+};
+
+/**
+ * Why a front-desk transition was refused. Same shape as BookingError: the
+ * action turns a code into copy, so the reason survives a round trip.
+ */
+export type TransitionError =
+  "NOT_FOUND" | "NOT_CONFIRMED" | "NOT_CHECKED_IN" | "BALANCE_DUE";
+
+export type TransitionResult =
+  { ok: true } | { ok: false; error: TransitionError; balance?: string };
+
+/**
+ * Mark a guest arrived.
+ *
+ * Two rows move together — the reservation's status and the room's housekeeping
+ * flag — so this runs in one transaction. A crash between them would leave a
+ * room reading AVAILABLE with somebody's luggage in it.
+ *
+ * The UPDATE is guarded on CONFIRMED rather than checked beforehand, which makes
+ * a double-click a no-op instead of a second check-in with a later timestamp.
+ */
+export const checkInReservation = async (
+  id: string,
+): Promise<TransitionResult> =>
+  withTransaction(async (run) => {
+    const updated = await run<{ roomId: string }>(
+      `
+      UPDATE "Reservation"
+         SET "status" = 'CHECKED_IN', "checkedInAt" = now()
+       WHERE "id" = $1
+         AND "status" = 'CONFIRMED'
+      RETURNING "roomId"
+      `,
+      [id],
+    );
+
+    if (updated.length === 0) {
+      const exists = await run<{ id: string }>(
+        `SELECT "id" FROM "Reservation" WHERE "id" = $1`,
+        [id],
+      );
+
+      return exists.length > 0
+        ? { ok: false as const, error: "NOT_CONFIRMED" as const }
+        : { ok: false as const, error: "NOT_FOUND" as const };
+    }
+
+    await run(`UPDATE "Room" SET "status" = 'OCCUPIED' WHERE "id" = $1`, [
+      updated[0]!.roomId,
+    ]);
+
+    return { ok: true as const };
+  });
+
+/**
+ * Mark a guest departed and free the room.
+ *
+ * Refused while anything is still owed. The balance is read inside the same
+ * transaction as the update, so a charge posted a moment ago cannot slip past
+ * the check — and the amount comes back with the error, so the front desk sees
+ * what to collect rather than a bare refusal.
+ */
+export const checkOutReservation = async (
+  id: string,
+): Promise<TransitionResult> =>
+  withTransaction(async (run) => {
+    const found = await run<{ status: ReservationStatus; balance: string }>(
+      `
+      SELECT res."status", (${BALANCE_EXPRESSION}) AS "balance"
+      FROM "Reservation" res
+      WHERE res."id" = $1
+      `,
+      [id],
+    );
+
+    const reservation = found[0];
+
+    if (!reservation)
+      return { ok: false as const, error: "NOT_FOUND" as const };
+
+    if (reservation.status !== "CHECKED_IN") {
+      return { ok: false as const, error: "NOT_CHECKED_IN" as const };
+    }
+
+    // Compared in centavos rather than as a float, for the reason lib/money.ts
+    // exists: a balance that lands on 0.004 is not zero, and a guest should not
+    // walk out owing a centavo nobody can see.
+    if (toCentavos(reservation.balance) > 0) {
+      return {
+        ok: false as const,
+        error: "BALANCE_DUE" as const,
+        balance: toMoney(reservation.balance),
+      };
+    }
+
+    const updated = await run<{ roomId: string }>(
+      `
+      UPDATE "Reservation"
+         SET "status" = 'CHECKED_OUT', "checkedOutAt" = now()
+       WHERE "id" = $1
+         AND "status" = 'CHECKED_IN'
+      RETURNING "roomId"
+      `,
+      [id],
+    );
+
+    if (updated.length === 0) {
+      return { ok: false as const, error: "NOT_CHECKED_IN" as const };
+    }
+
+    await run(`UPDATE "Room" SET "status" = 'AVAILABLE' WHERE "id" = $1`, [
+      updated[0]!.roomId,
+    ]);
+
+    return { ok: true as const };
+  });
+
+/** A departure carries what is still owed — the number the desk actually needs. */
+export type DepartureItem = ReservationListItem & {
+  balance: string;
+  balanceLabel: string;
+  /**
+   * Whether anything is actually owed. Decided here, in centavos, rather than
+   * by a component comparing the string to "0.00" — an overpaid folio is a
+   * negative balance, and that test would call it outstanding.
+   */
+  owing: boolean;
+};
+
+/** Everything the dashboard renders, in one call. */
+export type DashboardData = {
+  arrivals: ReservationListItem[];
+  departures: DepartureItem[];
+  inHouseGuests: number;
+  occupiedRooms: number;
+  totalRooms: number;
+  occupancyPercent: number;
+  arrivedCount: number;
+  balancesToSettle: number;
+};
+
+/**
+ * "Today" is the database's date, not the browser's. A front desk in Manila and
+ * a dev machine left on UTC would otherwise disagree about whose arrivals these
+ * are, and the guest standing at the counter is the one who is right.
+ *
+ * Departures deliberately include anyone still CHECKED_IN past their date. An
+ * overstay is the row the desk most needs to see, and dropping it the morning
+ * after would hide the one stay nobody has closed.
+ */
+export const getDashboardData = async (): Promise<DashboardData> => {
+  await releaseExpiredHolds();
+
+  const arrivalRows = await query<ListRow>(
+    `
+    SELECT ${LIST_COLUMNS}
+    FROM "Reservation" res
+    JOIN "Room" r ON r."id" = res."roomId"
+    WHERE res."checkIn" = CURRENT_DATE
+      AND res."status" IN ('CONFIRMED', 'CHECKED_IN')
+    ORDER BY r."number" ASC
+    `,
+  );
+
+  const departureRows = await query<ListRow & { balance: string }>(
+    `
+    SELECT ${LIST_COLUMNS}, (${BALANCE_EXPRESSION}) AS "balance"
+    FROM "Reservation" res
+    JOIN "Room" r ON r."id" = res."roomId"
+    WHERE res."status" = 'CHECKED_IN'
+      AND res."checkOut" <= CURRENT_DATE
+    ORDER BY res."checkOut" ASC, r."number" ASC
+    `,
+  );
+
+  const totals = await queryOne<{
+    inHouseGuests: number;
+    occupiedRooms: number;
+    totalRooms: number;
+  }>(
+    `
+    SELECT
+      COALESCE((
+        SELECT SUM("guestCount") FROM "Reservation" WHERE "status" = 'CHECKED_IN'
+      ), 0)::int                                                     AS "inHouseGuests",
+      (SELECT count(*) FROM "Room" WHERE "status" = 'OCCUPIED')::int AS "occupiedRooms",
+      (SELECT count(*) FROM "Room")::int                             AS "totalRooms"
+    `,
+  );
+
+  const { inHouseGuests, occupiedRooms, totalRooms } = totals ?? {
+    inHouseGuests: 0,
+    occupiedRooms: 0,
+    totalRooms: 0,
+  };
+
+  const departures = departureRows.map((row) => ({
+    ...toListItem(row),
+    balance: toMoney(row.balance),
+    balanceLabel: formatPeso(row.balance),
+    owing: toCentavos(row.balance) > 0,
+  }));
+
+  return {
+    arrivals: arrivalRows.map(toListItem),
+    departures,
+    inHouseGuests,
+    occupiedRooms,
+    totalRooms,
+    // Guarded: an empty property is a fresh database, not 0% occupancy via a
+    // division by zero.
+    occupancyPercent:
+      totalRooms === 0 ? 0 : Math.round((occupiedRooms / totalRooms) * 100),
+    arrivedCount: arrivalRows.filter((row) => row.status === "CHECKED_IN")
+      .length,
+    balancesToSettle: departures.filter((row) => row.owing).length,
+  };
+};
