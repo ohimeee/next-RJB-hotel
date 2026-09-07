@@ -10,47 +10,7 @@ const HomePage = async ({
   searchParams: Promise<RawSearchParams>;
 }) => {
   const query = parseSearch(await searchParams);
-  const rooms: RoomCardData[] = [
-    {
-      id: "mock-deluxe-101",
-      number: "101",
-      name: "Garden Deluxe",
-      type: "DELUXE",
-      capacity: 2,
-      amenities: ["King bed", "Garden view", "Wi-Fi"],
-      description: "A calm, light-filled room overlooking the garden.",
-      imageUrl: "https://picsum.photos/seed/garden-deluxe/800/600",
-      status: "AVAILABLE",
-      nightlyRate: "4500.00",
-      nightlyRateLabel: "₱4,500",
-    },
-    {
-      id: "mock-suite-201",
-      number: "201",
-      name: "Sunset Suite",
-      type: "SUITE",
-      capacity: 4,
-      amenities: ["King bed", "Living room", "Breakfast"],
-      description: "A spacious suite designed for slow, comfortable stays.",
-      imageUrl: "https://picsum.photos/seed/sunset-suite/800/600",
-      status: "AVAILABLE",
-      nightlyRate: "6800.00",
-      nightlyRateLabel: "₱6,800",
-    },
-    {
-      id: "mock-standard-301",
-      number: "301",
-      name: "Quiet Standard",
-      type: "STANDARD",
-      capacity: 2,
-      amenities: ["Queen bed", "Work desk", "Wi-Fi"],
-      description: "A comfortable retreat for restful nights and easy mornings.",
-      imageUrl: "https://picsum.photos/seed/quiet-standard/800/600",
-      status: "AVAILABLE",
-      nightlyRate: "3200.00",
-      nightlyRateLabel: "₱3,200",
-    },
-  ];
+  const rooms = await findAvailableRooms(query);
 
   const searched = Boolean(query.checkIn && query.checkOut);
 
